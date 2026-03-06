@@ -104,7 +104,7 @@
           return;
       }
 
-      const inputPin = prompt("Vui lòng nhập mã PIN (999) để truy cập:");
+      const inputPin = prompt("Vui lòng nhập mã PIN để truy cập:");
       if (inputPin === MY_PIN) {
           localStorage.setItem("access_pin_vnd", MY_PIN);
           document.body.style.display = "block";
@@ -241,4 +241,5 @@
   checkAuth();
 </script>
 </body>
+
 </html>
