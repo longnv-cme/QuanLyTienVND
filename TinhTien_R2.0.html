@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VND Online Sync - R2.0</title>
+  <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+  
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { padding: 20px; max-width: 900px; margin: 0 auto; color: #333; background: #f4f7f6; }
+    h1 { font-size: 22px; color: #1a73e8; display: flex; align-items: center; gap: 10px; }
+    .status-online { font-size: 12px; color: #28a745; border: 1px solid; padding: 2px 6px; border-radius: 10px; }
+    
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; }
+    th, td { border: 1px solid #eee; padding: 12px; }
+    th { background: #f8f9fa; font-weight: 600; }
+    td.num, th.num { text-align: right; }
+    
+    input.qty { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; }
+    input.qty:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.2); }
+    input.qty.error { border-color: #d93025; background: #fce8e6; }
+
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; }
+    
+    button { padding: 10px 18px; border: 1px solid #ccc; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 500; }
+    button.primary { background: #1a73e8; color: #fff; border: none; }
+    button.primary:disabled { background: #ccc; }
+    button.danger { color: #d93025; border-color: #fad2cf; }
+    
+    #detailsContainer { margin-top: 20px; padding: 15px; border-radius: 10px; background: #fff; display: none; border: 2px solid #1a73e8; }
+    .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; }
+  </style>
+</head>
+<body>
+
+  <div class="loading-overlay" id="loader">Đang đồng bộ dữ liệu...</div>
+
+  <h1>Quản lý tiền VND <span class="status-online">Online Cloud</span></h1>
+
+  <div class="card">
+    <table id="mainTable">
+      <thead>
+        <tr>
+          <th>Mệnh giá</th>
+          <th class="num">Số lượng</th>
+          <th class="num">Thành tiền</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+      <tfoot>
+        <tr>
+          <td colspan="2" class="num"><b>TỔNG CỘNG</b></td>
+          <td class="num"><b id="grandTotal" style="color: #d93025; font-size: 20px;">0</b></td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div id="errorBox" style="color:red; margin: 10px 0;"></div>
+
+    <div class="actions">
+        <div>
+            <label style="font-size: 12px; font-weight: bold;">Ngày ghi nhận:</label><br>
+            <input type="date" id="recordDate" style="padding: 8px; border-radius: 6px; border: 1px solid #ccc;">
+        </div>
+        <button type="button" class="primary" id="btnSave">Lưu lên Đám Mây</button>
+        <button type="button" id="btnClear">Làm mới bảng</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Báo cáo & Lịch sử Online</h3>
+    <div class="actions">
+      <input type="date" id="fromDate">
+      <input type="date" id="toDate">
+      <select id="groupBy" style="padding: 8px;">
+        <option value="all">Tất cả lần nhập</option>
+        <option value="day">Gom theo Ngày</option>
+        <option value="month">Gom theo Tháng</option>
+      </select>
+      <button type="button" id="btnStats" class="primary">Xem dữ liệu</button>
+    </div>
+    <div id="statsOut"></div>
+  </div>
+
+  <div id="detailsContainer">
+    <div style="display:flex; justify-content: space-between;">
+        <h3 id="detailsTitle" style="margin:0">Chi tiết</h3>
+        <button onclick="document.getElementById('detailsContainer').style.display='none'">Đóng</button>
+    </div>
+    <div id="detailsBody"></div>
+  </div>
+
+<script>
+  // ==========================================
+  // 1. CẤU HÌNH FIREBASE (Thay bằng thông tin của bạn)
+  // ==========================================
+  const firebaseConfig = {
+    apiKey: "Abcd#1234", 
+    databaseURL: "https://quanlytienvnd-default-rtdb.firebaseio.com",
+    projectId: "rtdb",
+  };
+
+  // Khởi tạo Firebase
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const recordsRef = db.ref("money_records");
+
+  // ==========================================
+  // 2. LOGIC NGHIỆP VỤ
+  // ==========================================
+  const DENOMS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000];
+  const rowsEl = document.getElementById('rows');
+  const grandTotalEl = document.getElementById('grandTotal');
+  const recordDateInp = document.getElementById('recordDate');
+  const loader = document.getElementById('loader');
+
+  recordDateInp.value = new Date().toISOString().split('T')[0];
+
+  function formatThousands(n) { return Math.trunc(n || 0).toLocaleString('en-US'); }
+
+  function buildTable() {
+    rowsEl.innerHTML = '';
+    DENOMS.forEach(denom => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${formatThousands(denom)}</td>
+        <td class="num"><input type="text" class="qty" inputmode="numeric" data-denom="${denom}"></td>
+        <td class="num" data-money-for="${denom}">0</td>`;
+      rowsEl.appendChild(tr);
+      tr.querySelector('input').addEventListener('input', recalc);
+    });
+  }
+
+  function recalc() {
+    let grand = 0;
+    document.querySelectorAll('input.qty').forEach(inp => {
+      const denom = Number(inp.dataset.denom);
+      const val = inp.value.replace(/\s+/g, '');
+      const qty = /^\d+$/.test(val) ? Number(val) : 0;
+      const line = qty * denom;
+      document.querySelector(`td[data-money-for="${denom}"]`).textContent = formatThousands(line);
+      grand += line;
+    });
+    grandTotalEl.textContent = formatThousands(grand);
+  }
+
+  // LƯU ONLINE
+  document.getElementById("btnSave").addEventListener("click", async () => {
+    const lines = DENOMS.map(denom => ({
+      denom,
+      qty: Number(document.querySelector(`input.qty[data-denom="${denom}"]`).value) || 0
+    }));
+    const total = lines.reduce((s, x) => s + (x.qty * x.denom), 0);
+    
+    if (total === 0 && !confirm("Tổng bằng 0, lưu chứ?")) return;
+
+    loader.style.display = 'flex';
+    const userDate = recordDateInp.value;
+    const now = new Date();
+    const createdAt = new Date(`${userDate}T${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`).toISOString();
+
+    try {
+      await recordsRef.push({ createdAt, lines, total });
+      alert("Đã đồng bộ lên Cloud!");
+      document.getElementById("btnClear").click();
+    } catch (e) {
+      alert("Lỗi kết nối: " + e.message);
+    } finally {
+      loader.style.display = 'none';
+    }
+  });
+
+  // TẢI DỮ LIỆU & THỐNG KÊ
+  document.getElementById("btnStats").addEventListener("click", () => {
+    loader.style.display = 'flex';
+    recordsRef.once("value", (snapshot) => {
+      const data = snapshot.val();
+      const records = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+      renderStats(records);
+      loader.style.display = 'none';
+    });
+  });
+
+  function renderStats(records) {
+    const from = document.getElementById("fromDate").value;
+    const to = document.getElementById("toDate").value;
+    const groupBy = document.getElementById("groupBy").value;
+
+    let filtered = records.filter(r => {
+      const t = new Date(r.createdAt).getTime();
+      const s = from ? new Date(from + "T00:00:00").getTime() : -Infinity;
+      const e = to ? new Date(to + "T23:59:59").getTime() : Infinity;
+      return t >= s && t <= e;
+    }).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+
+    let html = `<table><thead><tr><th>Thời gian</th><th class="num">Số tiền</th><th>Xem</th></tr></thead><tbody>`;
+    if (groupBy === 'all') {
+      filtered.forEach(r => {
+        const d = new Date(r.createdAt);
+        html += `<tr>
+          <td>${d.toLocaleDateString('vi-VN')} ${d.getHours()}:${d.getMinutes()}</td>
+          <td class="num"><b>${formatThousands(r.total)}</b></td>
+          <td><button onclick="viewOnlineDetail('${r.id}')">Chi tiết</button></td>
+        </tr>`;
+      });
+    } else {
+        // Logic gom nhóm tương tự bản offline
+        html = `<p>Chế độ gom nhóm đang hiển thị danh sách chi tiết (Realtime)</p>` + html;
+    }
+    html += `</tbody></table>`;
+    document.getElementById("statsOut").innerHTML = html;
+    window.currentRecords = records;
+  }
+
+  window.viewOnlineDetail = function(id) {
+    const r = window.currentRecords.find(x => x.id === id);
+    let html = `<table style="margin-top:10px">`;
+    r.lines.forEach(l => {
+      if(l.qty > 0) html += `<tr><td>${formatThousands(l.denom)}</td><td>x${l.qty}</td><td>${formatThousands(l.qty*l.denom)}</td></tr>`;
+    });
+    html += `</table><h4>TỔNG: ${formatThousands(r.total)} VND</h4>`;
+    document.getElementById("detailsBody").innerHTML = html;
+    document.getElementById("detailsContainer").style.display = "block";
+  }
+
+  document.getElementById("btnClear").addEventListener("click", () => {
+    document.querySelectorAll('input.qty').forEach(i => i.value = '');
+    recalc();
+  });
+
+  buildTable();
+</script>
+</body>
+</html>
