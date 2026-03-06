@@ -1,53 +1,40 @@
 <!doctype html>
-<!-- Bản tính tiền R2.0 lưu online, chọn ngày nhập, xem chi tiết các lần nhập trước đó-->
- <!-- Bản R2.1 thêm chức năng nhập mã Pin mới xem được-->
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VND Online Sync - R2.0</title>
+  <title>VND Cloud - Bảo mật PIN</title>
   <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
-  
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    body { padding: 20px; max-width: 900px; margin: 0 auto; color: #333; background: #f4f7f6; }
+    body { padding: 20px; max-width: 900px; margin: 0 auto; color: #333; background: #f4f7f6; display: none; } /* Ẩn body cho đến khi đúng PIN */
     h1 { font-size: 22px; color: #1a73e8; display: flex; align-items: center; gap: 10px; }
-    .status-online { font-size: 12px; color: #28a745; border: 1px solid; padding: 2px 6px; border-radius: 10px; }
-    
-    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
     th, td { border: 1px solid #eee; padding: 12px; }
-    th { background: #f8f9fa; font-weight: 600; }
+    th { background: #f8f9fa; }
     td.num, th.num { text-align: right; }
-    
     input.qty { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; }
-    input.qty:focus { outline: none; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.2); }
-    input.qty.error { border-color: #d93025; background: #fce8e6; }
-
     .card { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 15px; }
-    
     button { padding: 10px 18px; border: 1px solid #ccc; background: #fff; border-radius: 8px; cursor: pointer; font-weight: 500; }
     button.primary { background: #1a73e8; color: #fff; border: none; }
-    button.primary:disabled { background: #ccc; }
-    button.danger { color: #d93025; border-color: #fad2cf; }
-    
     #detailsContainer { margin-top: 20px; padding: 15px; border-radius: 10px; background: #fff; display: none; border: 2px solid #1a73e8; }
     .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; }
   </style>
 </head>
 <body>
 
-  <div class="loading-overlay" id="loader">Đang đồng bộ dữ liệu...</div>
+  <div class="loading-overlay" id="loader">Đang xử lý...</div>
 
-  <h1>Quản lý tiền VND <span class="status-online">Online Cloud</span></h1>
+  <h1>Quản lý tiền VND <span style="font-size: 12px; color: #28a745; border: 1px solid; padding: 2px 6px; border-radius: 10px;">Online Sync</span></h1>
 
   <div class="card">
-    <table id="mainTable">
+    <table>
       <thead>
         <tr>
           <th>Mệnh giá</th>
-          <th class="num">Số lượng</th>
+          <th class="num" style="width: 120px;">Số lượng</th>
           <th class="num">Thành tiền</th>
         </tr>
       </thead>
@@ -60,8 +47,6 @@
       </tfoot>
     </table>
 
-    <div id="errorBox" style="color:red; margin: 10px 0;"></div>
-
     <div class="actions">
         <div>
             <label style="font-size: 12px; font-weight: bold;">Ngày ghi nhận:</label><br>
@@ -69,18 +54,18 @@
         </div>
         <button type="button" class="primary" id="btnSave">Lưu lên Đám Mây</button>
         <button type="button" id="btnClear">Làm mới bảng</button>
+        <button type="button" id="btnLogout" style="color: #666;">Đăng xuất (Đổi PIN)</button>
     </div>
   </div>
 
   <div class="card">
-    <h3>Báo cáo & Lịch sử Online</h3>
+    <h3>Báo cáo & Lịch sử</h3>
     <div class="actions">
       <input type="date" id="fromDate">
       <input type="date" id="toDate">
       <select id="groupBy" style="padding: 8px;">
         <option value="all">Tất cả lần nhập</option>
         <option value="day">Gom theo Ngày</option>
-        <option value="month">Gom theo Tháng</option>
       </select>
       <button type="button" id="btnStats" class="primary">Xem dữ liệu</button>
     </div>
@@ -88,7 +73,7 @@
   </div>
 
   <div id="detailsContainer">
-    <div style="display:flex; justify-content: space-between;">
+    <div style="display:flex; justify-content: space-between; align-items: center;">
         <h3 id="detailsTitle" style="margin:0">Chi tiết</h3>
         <button onclick="document.getElementById('detailsContainer').style.display='none'">Đóng</button>
     </div>
@@ -96,62 +81,50 @@
   </div>
 
 <script>
-// thêm mã PIN
-
-// 1. Thêm biến Mã PIN của bạn ở đầu thẻ <script>
-const MY_PIN = "1234"; // Thay bằng mã bạn muốn
-
-function checkAuth() {
-    const savedPin = localStorage.getItem("access_pin");
-    if (savedPin === MY_PIN) return true;
-
-    const inputPin = prompt("Vui lòng nhập mã PIN để truy cập dữ liệu:");
-    if (inputPin === MY_PIN) {
-        localStorage.setItem("access_pin", MY_PIN);
-        return true;
-    } else {
-        alert("Sai mã PIN!");
-        document.body.innerHTML = "<h2 style='color:red; text-align:center;'>Truy cập bị từ chối!</h2>";
-        return false;
-    }
-}
-
-// 2. Gọi hàm này ngay khi trang web vừa tải xong
-if (checkAuth()) {
-    buildTable();
-    // Các lệnh khởi tạo khác...
-}
-
-// kết thúc khai báo mã PIN
-
-  // ==========================================
-  // 1. CẤU HÌNH FIREBASE (Thay bằng thông tin của bạn)
-  // ==========================================
+  // 1. CẤU HÌNH (Thay bằng thông tin Firebase của bạn)
   const firebaseConfig = {
     apiKey: "Abcd#1234", 
     databaseURL: "https://quanlytienvnd-default-rtdb.firebaseio.com",
     projectId: "rtdb",
   };
 
-  // Khởi tạo Firebase
   firebase.initializeApp(firebaseConfig);
   const db = firebase.database();
   const recordsRef = db.ref("money_records");
 
-  // ==========================================
-  // 2. LOGIC NGHIỆP VỤ
-  // ==========================================
+  const MY_PIN = "999";
   const DENOMS = [500000, 200000, 100000, 50000, 20000, 10000, 5000, 2000, 1000];
-  const rowsEl = document.getElementById('rows');
-  const grandTotalEl = document.getElementById('grandTotal');
-  const recordDateInp = document.getElementById('recordDate');
-  const loader = document.getElementById('loader');
+  
+  // 2. KIỂM TRA MÃ PIN NGAY KHI VÀO TRANG
+  function checkAuth() {
+      const savedPin = localStorage.getItem("access_pin_vnd");
+      if (savedPin === MY_PIN) {
+          document.body.style.display = "block";
+          initApp();
+          return;
+      }
 
-  recordDateInp.value = new Date().toISOString().split('T')[0];
+      const inputPin = prompt("Vui lòng nhập mã PIN (999) để truy cập:");
+      if (inputPin === MY_PIN) {
+          localStorage.setItem("access_pin_vnd", MY_PIN);
+          document.body.style.display = "block";
+          initApp();
+      } else {
+          alert("Sai mã PIN! Trang web sẽ không hiển thị.");
+          window.location.reload();
+      }
+  }
+
+  // 3. KHỞI TẠO ỨNG DỤNG SAU KHI QUA CỬA PIN
+  function initApp() {
+      buildTable();
+      document.getElementById('recordDate').value = new Date().toISOString().split('T')[0];
+  }
 
   function formatThousands(n) { return Math.trunc(n || 0).toLocaleString('en-US'); }
 
   function buildTable() {
+    const rowsEl = document.getElementById('rows');
     rowsEl.innerHTML = '';
     DENOMS.forEach(denom => {
       const tr = document.createElement('tr');
@@ -174,43 +147,39 @@ if (checkAuth()) {
       document.querySelector(`td[data-money-for="${denom}"]`).textContent = formatThousands(line);
       grand += line;
     });
-    grandTotalEl.textContent = formatThousands(grand);
+    document.getElementById('grandTotal').textContent = formatThousands(grand);
   }
 
-  // LƯU ONLINE
+  // LƯU DỮ LIỆU
   document.getElementById("btnSave").addEventListener("click", async () => {
     const lines = DENOMS.map(denom => ({
       denom,
       qty: Number(document.querySelector(`input.qty[data-denom="${denom}"]`).value) || 0
     }));
     const total = lines.reduce((s, x) => s + (x.qty * x.denom), 0);
-    
-    if (total === 0 && !confirm("Tổng bằng 0, lưu chứ?")) return;
+    if (total === 0 && !confirm("Tổng bằng 0, vẫn lưu chứ?")) return;
 
-    loader.style.display = 'flex';
-    const userDate = recordDateInp.value;
+    document.getElementById('loader').style.display = 'flex';
+    const userDate = document.getElementById('recordDate').value;
     const now = new Date();
     const createdAt = new Date(`${userDate}T${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`).toISOString();
 
     try {
       await recordsRef.push({ createdAt, lines, total });
-      alert("Đã đồng bộ lên Cloud!");
+      alert("Đã đồng bộ thành công!");
       document.getElementById("btnClear").click();
-    } catch (e) {
-      alert("Lỗi kết nối: " + e.message);
-    } finally {
-      loader.style.display = 'none';
-    }
+    } catch (e) { alert("Lỗi: " + e.message); }
+    finally { document.getElementById('loader').style.display = 'none'; }
   });
 
-  // TẢI DỮ LIỆU & THỐNG KÊ
+  // XEM THỐNG KÊ
   document.getElementById("btnStats").addEventListener("click", () => {
-    loader.style.display = 'flex';
+    document.getElementById('loader').style.display = 'flex';
     recordsRef.once("value", (snapshot) => {
       const data = snapshot.val();
       const records = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
       renderStats(records);
-      loader.style.display = 'none';
+      document.getElementById('loader').style.display = 'none';
     });
   });
 
@@ -226,20 +195,15 @@ if (checkAuth()) {
       return t >= s && t <= e;
     }).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
 
-    let html = `<table><thead><tr><th>Thời gian</th><th class="num">Số tiền</th><th>Xem</th></tr></thead><tbody>`;
-    if (groupBy === 'all') {
-      filtered.forEach(r => {
-        const d = new Date(r.createdAt);
-        html += `<tr>
-          <td>${d.toLocaleDateString('vi-VN')} ${d.getHours()}:${d.getMinutes()}</td>
-          <td class="num"><b>${formatThousands(r.total)}</b></td>
-          <td><button onclick="viewOnlineDetail('${r.id}')">Chi tiết</button></td>
-        </tr>`;
-      });
-    } else {
-        // Logic gom nhóm tương tự bản offline
-        html = `<p>Chế độ gom nhóm đang hiển thị danh sách chi tiết (Realtime)</p>` + html;
-    }
+    let html = `<table><thead><tr><th>Ngày giờ</th><th class="num">Số tiền</th><th>Xem</th></tr></thead><tbody>`;
+    filtered.forEach(r => {
+      const d = new Date(r.createdAt);
+      html += `<tr>
+        <td>${d.toLocaleDateString('vi-VN')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}</td>
+        <td class="num"><b>${formatThousands(r.total)}</b></td>
+        <td><button onclick="viewOnlineDetail('${r.id}')">Xem</button> <button onclick="deleteRecord('${r.id}')" style="color:red; border:none; background:none; cursor:pointer">Xóa</button></td>
+      </tr>`;
+    });
     html += `</tbody></table>`;
     document.getElementById("statsOut").innerHTML = html;
     window.currentRecords = records;
@@ -247,13 +211,20 @@ if (checkAuth()) {
 
   window.viewOnlineDetail = function(id) {
     const r = window.currentRecords.find(x => x.id === id);
-    let html = `<table style="margin-top:10px">`;
+    let html = `<table style="margin-top:10px"><thead><tr><th>Mệnh giá</th><th>Số lượng</th><th>Thành tiền</th></tr></thead><tbody>`;
     r.lines.forEach(l => {
-      if(l.qty > 0) html += `<tr><td>${formatThousands(l.denom)}</td><td>x${l.qty}</td><td>${formatThousands(l.qty*l.denom)}</td></tr>`;
+      if(l.qty > 0) html += `<tr><td>${formatThousands(l.denom)}</td><td>${l.qty}</td><td>${formatThousands(l.qty*l.denom)}</td></tr>`;
     });
-    html += `</table><h4>TỔNG: ${formatThousands(r.total)} VND</h4>`;
+    html += `</tbody></table><h4 style="text-align:right">TỔNG: ${formatThousands(r.total)} VND</h4>`;
     document.getElementById("detailsBody").innerHTML = html;
     document.getElementById("detailsContainer").style.display = "block";
+    document.getElementById("detailsContainer").scrollIntoView();
+  }
+
+  window.deleteRecord = async function(id) {
+    if(!confirm("Xóa vĩnh viễn lần nhập này?")) return;
+    await recordsRef.child(id).remove();
+    document.getElementById("btnStats").click();
   }
 
   document.getElementById("btnClear").addEventListener("click", () => {
@@ -261,7 +232,13 @@ if (checkAuth()) {
     recalc();
   });
 
-  buildTable();
+  document.getElementById("btnLogout").addEventListener("click", () => {
+    localStorage.removeItem("access_pin_vnd");
+    window.location.reload();
+  });
+
+  // Chạy kiểm tra PIN đầu tiên
+  checkAuth();
 </script>
 </body>
 </html>
